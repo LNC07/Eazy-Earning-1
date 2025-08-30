@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Macrojob Website</title>
+<style>
+body {font-family: Arial, sans-serif; background:#f5f5f5; margin:0; padding:0;}
+header {background:#222; color:#fff; padding:12px; text-align:center;}
+.container {padding:20px;}
+.box {background:#fff; padding:20px; margin:20px auto; border-radius:8px; max-width:500px; box-shadow:0 2px 6px rgba(0,0,0,0.2);}
+input, button, select {width:100%; padding:10px; margin:6px 0; border-radius:5px; border:1px solid #ccc;}
+button {background:#222; color:#fff; cursor:pointer;}
+button:hover {background:#444;}
+.task {padding:10px; margin:8px 0; background:#e8e8e8; border-radius:5px;}
+#dashboard {display:none;}
+#loginBox, #signupBox, #resetBox {display:none;}
+</style>
+</head>
+<body>
+<header><h2>Macrojob Website</h2></header>
+
+<div class="container">
+
+<!-- Login -->
+<div id="loginBox" class="box">
+  <h3>Login</h3>
+  <input type="email" id="loginEmail" placeholder="Email">
+  <input type="password" id="loginPassword" placeholder="Password">
+  <button onclick="login()">Login</button>
+  <p>Not registered? <a href="#" onclick="showSignup()">Sign Up</a></p>
+  <p><a href="#" onclick="showReset()">Forgot Password?</a></p>
+</div>
+
+<!-- Signup -->
+<div id="signupBox" class="box">
+  <h3>Sign Up</h3>
+  <input type="text" id="signupName" placeholder="Full Name">
+  <input type="email" id="signupEmail" placeholder="Email">
+  <input type="password" id="signupPassword" placeholder="Password">
+  <button onclick="signup()">Create Account</button>
+  <p>Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
+</div>
+
+<!-- Reset Password -->
+<div id="resetBox" class="box">
+  <h3>Reset Password</h3>
+  <input type="email" id="resetEmail" placeholder="Enter your Email">
+  <button onclick="resetPassword()">Send Reset Email</button>
+  <p><a href="#" onclick="showLogin()">Back to Login</a></p>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard" class="box">
+  <h3>Welcome <span id="userName"></span> 👋</h3>
+  <p>Coins: <span id="userCoins">0</span> <button onclick="showWithdraw()">Withdraw</button></p>
+
+  <!-- Withdraw Form -->
+  <div id="withdrawBox" style="display:none; margin-top:10px;">
+    <input type="text" id="withdrawAccount" placeholder="Bkash/Nagad Account Number">
+    <input type="number" id="withdrawAmount" placeholder="Amount">
+    <select id="withdrawMethod">
+      <option value="Bkash">Bkash</option>
+      <option value="Nagad">Nagad</option>
+    </select>
+    <button onclick="requestWithdraw()">Submit Withdraw</button>
+  </div>
+
+  <h4>Tasks</h4>
+  <div id="taskList"></div>
+  <button onclick="logout()">Logout</button>
+</div>
+
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB3-ClSSDlKoVANTJOAYcnB3SZpEXjIBDE",
+  authDomain: "fast-earn-5a485.firebaseapp.com",
+  databaseURL: "https://fast-earn-5a485-default-rtdb.firebaseio.com",
+  projectId: "fast-earn-5a485",
+  storageBucket: "fast-earn-5a485.firebasestorage.app",
+  messagingSenderId: "897353554923",
+  appId: "1:897353554923:web:7010437d6353afa3ae17ae",
+  measurementId: "G-VD8Q9CE9NX"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+const loginBox = document.getElementById("loginBox");
+const signupBox = document.getElementById("signupBox");
+const resetBox = document.getElementById("resetBox");
+const dashboard = document.getElementById("dashboard");
+
+function showLogin(){ signupBox.style.display="none"; resetBox.style.display="none"; loginBox.style.display="block"; }
+function showSignup(){ loginBox.style.display="none"; resetBox.style.display="none"; signupBox.style.display="block"; }
+function showReset(){ loginBox.style.display="none"; signupBox.style.display="none"; resetBox.style.display="block"; }
+
+// Signup
+async function signup(){
+  const name = document.getElementById("signupName").value;
+  const email = document.getElementById("signupEmail").value;
+  const password = document.getElementById("signupPassword").value;
+  try{
+    const userCredential = await auth.createUserWithEmailAndPassword(email,password);
+    const user = userCredential.user;
+    await user.sendEmailVerification();
+    await db.collection("users").doc(user.uid).set({
+      name: name,
+      email: email,
+      coins: 0,
+      banned: false,
+      taskHistory: {}
+    });
+    alert("Verification email sent. Check inbox.");
+    showLogin();
+  }catch(error){ alert(error.message); }
+}
+
+// Login
+async function login(){
+  const email = document.getElementById("loginEmail").value;
+  const password = document.getElementById("loginPassword").value;
+  try{ await auth.signInWithEmailAndPassword(email,password); }
+  catch(error){ alert(error.message); }
+}
+
+// Reset Password
+async function resetPassword(){
+  const email = document.getElementById("resetEmail").value;
+  if(!email){ alert("Enter email"); return; }
+  try{
+    await auth.sendPasswordResetEmail(email);
+    alert("Reset password email sent.");
+    showLogin();
+  }catch(e){ alert(e.message); }
+}
+
+// Auth observer
+auth.onAuthStateChanged(async (user)=>{
+  if(user){
+    if(!user.emailVerified){ alert("Verify email first!"); auth.signOut(); return; }
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    if(!userDoc.exists){ alert("User data not found."); auth.signOut(); return; }
+    const userData = userDoc.data();
+    if(userData.banned){ alert("Your account is banned!"); auth.signOut(); return; }
+    document.getElementById("userName").innerText = userData.name || "User";
+    document.getElementById("userCoins").innerText = userData.coins || 0;
+    loadTasks();
+    loginBox.style.display="none"; signupBox.style.display="none"; resetBox.style.display="none"; dashboard.style.display="block";
+  }else{ dashboard.style.display="none"; showLogin(); }
+});
+
+// Show Withdraw Box
+function showWithdraw(){ document.getElementById("withdrawBox").style.display="block"; }
+
+// Withdraw request
+async function requestWithdraw(){
+  const user = auth.currentUser;
+  const amount = parseInt(document.getElementById("withdrawAmount").value);
+  const method = document.getElementById("withdrawMethod").value;
+  const account = document.getElementById("withdrawAccount").value.trim();
+  if(!user || !amount || amount<=0 || !account){ alert("Enter valid details"); return; }
+
+  const userRef = db.collection("users").doc(user.uid);
+  const userDoc = await userRef.get();
+  const userCoins = userDoc.data().coins || 0;
+
+  if(userCoins < amount){ alert("Insufficient balance!"); return; }
+
+  await userRef.update({coins: userCoins - amount});
+  
+  await db.collection("withdraws").add({
+    userId: user.uid,
+    amount: amount,
+    method: method,
+    account: account,
+    status: "pending",
+    createdAt: Date.now()
+  });
+
+  document.getElementById("withdrawBox").style.display="none";
+  document.getElementById("withdrawAmount").value="";
+  document.getElementById("withdrawAccount").value="";
+  alert("Withdraw request submitted! Coins deducted.");
+  document.getElementById("userCoins").innerText = userCoins - amount;
+}
+
+// Tasks with 20s timer
+async function loadTasks(){
+  const user = auth.currentUser;
+  if(!user) return;
+  const userRef = db.collection("users").doc(user.uid);
+  const userDoc = await userRef.get();
+  const taskHistory = userDoc.data().taskHistory || {};
+
+  const taskListDiv = document.getElementById("taskList");
+  taskListDiv.innerHTML = "";
+
+  const snapshot = await db.collection("tasks").orderBy("createdAt","desc").get();
+
+  snapshot.forEach(doc=>{
+    const t = doc.data();
+    t.id = doc.id;
+    const lastDone = taskHistory[t.id] || 0;
+    const cooldown = 2*60*60*1000; // 2 hours
+    const available = Date.now() - lastDone >= cooldown;
+    const div = document.createElement("div");
+    div.className = "task";
+    div.innerHTML = `<strong>${t.title}</strong> - ${t.reward} coins<br>Link: <a href="${t.link}" target="_blank">${t.link}</a><br>
+      <button id="taskBtn-${t.id}" ${available?"":"disabled"}>${available?"Start Task":"Wait..."}</button>`;
+    taskListDiv.appendChild(div);
+
+    if(available){
+      div.querySelector("button").onclick = async ()=>{
+        const btn = div.querySelector("button");
+        btn.disabled = true;
+        btn.innerText = "Counting 20s...";
+        const win = window.open(t.link,"_blank");
+        await new Promise(r=>setTimeout(r,20000));
+        win.close();
+
+        const updatedDoc = await userRef.get();
+        const coins = (updatedDoc.data().coins || 0) + t.reward;
+        let history = updatedDoc.data().taskHistory || {};
+        history[t.id] = Date.now();
+        await userRef.update({coins: coins, taskHistory: history});
+        document.getElementById("userCoins").innerText = coins;
+        loadTasks();
+        alert("Task Completed!");
+      };
+    }
+  });
+}
+
+function logout(){ auth.signOut(); }
+</script>
+</body>
+</html>
